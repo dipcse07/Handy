@@ -121,3 +121,63 @@ pub fn paste_text_direct(enigo: &mut Enigo, text: &str) -> Result<(), String> {
 
     Ok(())
 }
+
+/// Sends a backspace keypress to delete a character.
+/// This is useful for cleaning up accidentally typed characters when a hotkey is triggered.
+pub fn send_backspace(enigo: &mut Enigo) -> Result<(), String> {
+    enigo
+        .key(Key::Backspace, enigo::Direction::Click)
+        .map_err(|e| format!("Failed to send backspace: {}", e))?;
+    Ok(())
+}
+
+/// Cleans up an accidentally typed space character that may occur when using
+/// space-based hotkeys (e.g., Option+Space). This is a workaround for the issue
+/// where the space key event propagates to other applications before the hotkey
+/// can block it.
+///
+/// # Arguments
+/// * `app_handle` - The Tauri app handle to access the EnigoState
+/// * `hotkey_string` - The hotkey string to check if it contains "space"
+///
+/// # Returns
+/// * `true` if a backspace was sent successfully
+/// * `false` if the hotkey doesn't contain space or if sending backspace failed
+pub fn cleanup_space_from_hotkey(app_handle: &AppHandle, hotkey_string: &str) -> bool {
+    // Only clean up if the hotkey contains "space"
+    if !hotkey_string.to_lowercase().contains("space") {
+        return false;
+    }
+
+    // Get the Enigo state
+    let enigo_state = match app_handle.try_state::<EnigoState>() {
+        Some(state) => state,
+        None => {
+            log::warn!("EnigoState not available for space cleanup");
+            return false;
+        }
+    };
+
+    // Try to lock and send backspace
+    match enigo_state.0.lock() {
+        Ok(mut enigo) => {
+            // Small delay to ensure the space has been typed before we delete it
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            
+            match send_backspace(&mut enigo) {
+                Ok(_) => {
+                    log::debug!("Successfully cleaned up space from hotkey trigger");
+                    true
+                }
+                Err(e) => {
+                    log::warn!("Failed to clean up space from hotkey trigger: {}", e);
+                    false
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("Failed to lock Enigo for space cleanup: {}", e);
+            false
+        }
+    }
+}
