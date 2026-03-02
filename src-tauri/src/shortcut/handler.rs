@@ -3,11 +3,12 @@
 //! This module contains the common logic for handling shortcut events,
 //! used by both the Tauri and handy-keys implementations.
 
-use log::warn;
+use log::{debug, warn};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
 use crate::actions::ACTION_MAP;
+use crate::input::cleanup_space_from_hotkey;
 use crate::managers::audio::AudioRecordingManager;
 use crate::settings::get_settings;
 use crate::transcription_coordinator::is_transcribe_binding;
@@ -20,6 +21,7 @@ use crate::TranscriptionCoordinator;
 /// - Handling the cancel binding (only fires when recording)
 /// - Handling push-to-talk mode (start on press, stop on release)
 /// - Handling toggle mode (toggle state on press only)
+/// - Cleaning up accidentally typed space characters for space-based hotkeys
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
@@ -33,6 +35,19 @@ pub fn handle_shortcut_event(
     is_pressed: bool,
 ) {
     let settings = get_settings(app);
+
+    // Clean up any accidentally typed space when the hotkey is pressed.
+    // This is a workaround for the issue where the space key event propagates
+    // to other applications before the hotkey blocking takes effect.
+    // Only clean up on key press and when the setting is enabled.
+    if is_pressed && settings.suppress_space_on_hotkey {
+        if cleanup_space_from_hotkey(app, hotkey_string) {
+            debug!(
+                "Cleaned up space character from hotkey '{}' for binding '{}'",
+                hotkey_string, binding_id
+            );
+        }
+    }
 
     // Transcribe bindings are handled by the coordinator.
     if is_transcribe_binding(binding_id) {
